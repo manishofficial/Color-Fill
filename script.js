@@ -1,6 +1,8 @@
 // Global variables to store filled regions and their colors
 let shapeRegions = {};
 let filledColors = {};
+let lastShape = null;
+let hoverShape = false;
 
 // Handle image file selection
 const imageFileInput = document.getElementById('imageFile');
@@ -9,7 +11,8 @@ imageFileInput.addEventListener('change', handleImageUpload);
 // Handle canvas click event
 const canvas = document.getElementById('canvas');
 canvas.addEventListener('click', handleCanvasClick);
-// canvas.addEventListener('mousemove', handleCanvasMouseMove);
+canvas.addEventListener('mousemove', handleCanvasMouseMove);
+document.addEventListener('mousemove', handleDocumentMouseMove);
 
 // Handle canvas click event
 function handleCanvasClick(event) {
@@ -27,19 +30,47 @@ function handleCanvasClick(event) {
     }
 }
 
+// Handle document mousemove event
+function handleDocumentMouseMove(event) {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+    if (mouseX < 0 || mouseY < 0 || mouseX > canvas.width || mouseY > canvas.height) {
+        removeHover();
+    }
+}
+
 // Handle canvas mousemove event
 function handleCanvasMouseMove(event) {
     const x = event.offsetX;
     const y = event.offsetY;
 
-    // Find the shape containing the region under the mouse
+    // Find the shape containing the clicked region
     const shapeKey = findShape(x, y);
-
-    // Show region fill effect if the mouse is moved without clicking
+    // Fill the clicked region in the shape with the selected color
     if (shapeKey) {
-        showRegionFillEffect(shapeKey);
+        if (lastShape !== shapeKey) {
+            lastShape = shapeKey;
+            removeHover();
+        } else {
+            fillRegion(shapeKey, 'red');
+            hoverShape = true;
+        }
     } else {
-        clearCanvas();
+        if (lastShape) {
+            removeHover()
+        }
+    }
+}
+
+function removeHover() {
+    if (hoverShape) {
+        for (let shape in shapeRegions) {
+            fillRegion(shape, '#ffffff');
+        }
+        hoverShape = false;
+    } else {
+        hoverShape = false;
     }
 }
 
@@ -48,59 +79,45 @@ function handleImageUpload(event) {
     const file = event.target.files[0];
     const reader = new FileReader();
 
-    reader.onload = function (e) {
+    reader.onload = (e) => {
         const img = new Image();
-        img.onload = function () {
-            // Create a temporary canvas to process the image
+        img.onload = () => {
             const tempCanvas = document.createElement('canvas');
             const tempCtx = tempCanvas.getContext('2d');
 
-            // Set the temporary canvas dimensions
             tempCanvas.width = img.width;
             tempCanvas.height = img.height;
 
-            // Draw the image on the temporary canvas
             tempCtx.drawImage(img, 0, 0);
 
-            // Get the image data from the temporary canvas
             const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
             const pixels = imageData.data;
-
-            // Apply image thresholding to convert the image to pure black and white
-            const threshold = 128; // Set your desired threshold value here
+            const threshold = 128;
 
             for (let i = 0; i < pixels.length; i += 4) {
                 const r = pixels[i];
                 const g = pixels[i + 1];
                 const b = pixels[i + 2];
 
-                // Calculate grayscale value using the formula: (0.299 * R + 0.587 * G + 0.114 * B)
                 const grayscale = 0.299 * r + 0.587 * g + 0.114 * b;
-
-                // Convert each pixel to black or white based on the threshold
                 const newColor = grayscale >= threshold ? 255 : 0;
 
-                pixels[i] = newColor; // Set red channel
-                pixels[i + 1] = newColor; // Set green channel
-                pixels[i + 2] = newColor; // Set blue channel
+                pixels[i] = newColor;
+                pixels[i + 1] = newColor;
+                pixels[i + 2] = newColor;
             }
 
-            // Update the temporary canvas with the modified image data
             tempCtx.putImageData(imageData, 0, 0);
 
-            // Clear the main canvas
             const canvas = document.getElementById('canvas');
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Draw the modified image on the main canvas
             ctx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height);
 
-            // Clear shape regions and filled colors when a new image is uploaded
             shapeRegions = {};
             filledColors = {};
 
-            // Detect shapes and render color options
             detectShapes();
             renderColorOptions();
         };
@@ -109,6 +126,7 @@ function handleImageUpload(event) {
 
     reader.readAsDataURL(file);
 }
+
 
 // Calculate the Otsu's threshold value for the image data
 function calculateOtsuThreshold(pixels) {

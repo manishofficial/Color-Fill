@@ -11,8 +11,6 @@ imageFileInput.addEventListener('change', handleImageUpload);
 // Handle canvas click event
 const canvas = document.getElementById('canvas');
 canvas.addEventListener('click', handleCanvasClick);
-canvas.addEventListener('mousemove', handleCanvasMouseMove);
-document.addEventListener('mousemove', handleDocumentMouseMove);
 
 // Handle canvas click event
 function handleCanvasClick(event) {
@@ -24,8 +22,8 @@ function handleCanvasClick(event) {
 
     // Fill the clicked region in the shape with the selected color
     if (shapeKey) {
-        const colorInput = document.getElementById(shapeKey);
-        const selectedColor = colorInput.value;
+        // const colorInput = document.getElementById(shapeKey);
+        const selectedColor = 'red';
         fillRegion(shapeKey, selectedColor);
     }
 }
@@ -110,16 +108,29 @@ function handleImageUpload(event) {
             tempCtx.putImageData(imageData, 0, 0);
 
             const canvas = document.getElementById('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+
             const ctx = canvas.getContext('2d');
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
+            // Draw the processed image onto the canvas
             ctx.drawImage(tempCanvas, 0, 0, canvas.width, canvas.height);
 
             shapeRegions = {};
             filledColors = {};
 
-            detectShapes();
-            renderColorOptions();
+            // Show a loading message while running shape detection
+            const loadingMessage = document.getElementById('loading-message');
+            loadingMessage.textContent = 'Shape detection running...';
+
+            // Run shape detection asynchronously
+            setTimeout(() => {
+                detectShapes();
+                renderColorOptions();
+                // Remove the loading message when shape detection is complete
+                loadingMessage.textContent = '';
+            }, 3000);
         };
         img.src = e.target.result;
     };
@@ -236,22 +247,62 @@ function findShape(x, y) {
     return null;
 }
 
-// Detect shapes on the canvas
 function detectShapes() {
-    const visited = new Array(canvas.width * canvas.height * 4).fill(false);
+    const visited = new Array(canvas.width).fill(0).map(() => new Array(canvas.height).fill(false));
+
+    const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+    const pixels = new Uint8Array(imageData.data.buffer);
+
+    const queue = [];
 
     for (let x = 0; x < canvas.width; x++) {
         for (let y = 0; y < canvas.height; y++) {
             const pixelIndex = (y * canvas.width + x) * 4;
 
-            if (!visited[pixelIndex]) {
+            if (!visited[x][y]) {
                 const shapeKey = `shape${Object.keys(shapeRegions).length + 1}`;
                 const regions = [];
 
-                floodFill(x, y, visited, shapeKey, regions);
+                floodFill(x, y, visited, shapeKey, regions, pixels, canvas.width, canvas.height, queue);
 
                 if (regions.length > 0) {
                     shapeRegions[shapeKey] = regions;
+                }
+            }
+        }
+    }
+}
+
+function floodFill(x, y, visited, shapeKey, regions, pixels, width, height, queue) {
+    const targetColor = [255, 255, 255, 255]; // White color
+    const replacementColor = [0, 0, 0, 255]; // Black color
+
+    const initialPixelIndex = (y * width + x) * 4;
+
+    if (visited[x][y] || !colorsMatch(pixels, initialPixelIndex, targetColor)) {
+        return;
+    }
+
+    queue.push([x, y]);
+    visited[x][y] = true;
+
+    while (queue.length > 0) {
+        const [currentX, currentY] = queue.shift();
+        const currentPixelIndex = (currentY * width + currentX) * 4;
+
+        if (colorsMatch(pixels, currentPixelIndex, targetColor)) {
+            pixels.set(replacementColor, currentPixelIndex);
+
+            regions.push({ x: currentX, y: currentY });
+
+            const neighbors = getNeighbors(currentX, currentY);
+            for (const neighbor of neighbors) {
+                const [nx, ny] = neighbor;
+                const neighborPixelIndex = (ny * width + nx) * 4;
+
+                if (!visited[nx][ny] && colorsMatch(pixels, neighborPixelIndex, targetColor)) {
+                    queue.push([nx, ny]);
+                    visited[nx][ny] = true;
                 }
             }
         }
@@ -322,61 +373,6 @@ function handleColorChange(event) {
     fillRegion(shapeKey, selectedColor);
 }
 
-// Flood fill algorithm to detect shapes
-function floodFill(x, y, visited, shapeKey, regions) {
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const pixels = imageData.data;
-    const queue = [];
-    const initialPixelIndex = (y * canvas.width + x) * 4;
-
-    if (visited[initialPixelIndex]) {
-        return;
-    }
-
-    const targetColor = [255, 255, 255, 255]; // White color
-    const replacementColor = [0, 0, 0, 255]; // Black color
-
-    // Check if the initial pixel color matches the target color
-    if (!colorsMatch(pixels, initialPixelIndex, targetColor)) {
-        return;
-    }
-
-    // Add initial pixel to the queue and mark it as visited
-    queue.push([x, y]);
-    visited[initialPixelIndex] = true;
-
-    while (queue.length > 0) {
-        const [currentX, currentY] = queue.shift();
-        const currentPixelIndex = (currentY * canvas.width + currentX) * 4;
-
-        // Check if the current pixel color matches the target color
-        if (colorsMatch(pixels, currentPixelIndex, targetColor)) {
-            // Fill the current pixel with the replacement color
-            pixels[currentPixelIndex] = replacementColor[0];
-            pixels[currentPixelIndex + 1] = replacementColor[1];
-            pixels[currentPixelIndex + 2] = replacementColor[2];
-            pixels[currentPixelIndex + 3] = replacementColor[3];
-
-            // Add the current pixel to the regions array
-            regions.push({ x: currentX, y: currentY });
-
-            // Check the neighboring pixels
-            const neighbors = getNeighbors(currentX, currentY);
-            for (const neighbor of neighbors) {
-                const [nx, ny] = neighbor;
-                const neighborPixelIndex = (ny * canvas.width + nx) * 4;
-
-                if (!visited[neighborPixelIndex] && colorsMatch(pixels, neighborPixelIndex, targetColor)) {
-                    // Add neighboring pixel to the queue and mark it as visited
-                    queue.push([nx, ny]);
-                    visited[neighborPixelIndex] = true;
-                }
-            }
-        }
-    }
-}
-
 // Check if two colors match
 function colorsMatch(pixels, pixelIndex, targetColor) {
     const tolerance = 10; // Adjust the tolerance value as needed
@@ -408,4 +404,14 @@ function getNeighbors(x, y) {
     }
 
     return neighbors;
+}
+function downloadImage() {
+    const link = document.createElement('a');
+    link.href = canvas.toDataURL('image/png'); // Get the canvas content as a data URL
+    link.download = 'colored_image.png'; // Specify the filename for the downloaded image
+    link.click();
+}
+const downloadButton = document.getElementById('downloadButton');
+if (downloadButton) {
+    downloadButton.addEventListener('click', downloadImage);
 }

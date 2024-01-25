@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <script async src="https://docs.opencv.org/master/opencv.js" onload="onOpenCvReady();"
+        type="text/javascript"></script>
+    <script src="https://unpkg.com/konva@9.3.1/konva.min.js"></script>
+    <meta charset="utf-8" />
+    <title>Konva Color Book</title>
+</head>
+
+<body>
+    <input type="file" name="imageInput" id="imageInput" accept="image/*">
+    <button onclick="convertToBlackAndWhite()">Convert to Black and White</button>
+    <input type="color" id="colorPicker" value="#000000">
+    <button onclick="startFilling()">Start Filling</button>
+    <div id="container"></div>
+
+    <script>
+        var width = window.innerWidth;
+        var height = window.innerHeight;
+        var stage, layer, imageObj;
+        var contours = [];
+
+        const imageInput = document.getElementById('imageInput');
+        const colorPicker = document.getElementById('colorPicker');
+        const fillingButton = document.querySelector('button[onclick="startFilling()"]');
+        var isFilling = false;
+
+        imageInput.addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+
+                reader.onload = function (event) {
+                    imageObj = new Image();
+                    imageObj.onload = function () {
+                        initializeStage();
+                        analyzeImage();
+                    };
+                    imageObj.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        function initializeStage() {
+            stage = new Konva.Stage({
+                container: 'container',
+                width: width,
+                height: height,
+            });
+            layer = new Konva.Layer();
+
+            var konvaImage = new Konva.Image({
+                image: imageObj,
+                x: stage.width() / 2 - imageObj.width / 2,
+                y: stage.height() / 2 - imageObj.height / 2,
+                width: imageObj.width,
+                height: imageObj.height,
+                draggable: false,
+            });
+
+            layer.add(konvaImage);
+            stage.add(layer);
+        }
+
+        function convertToBlackAndWhite() {
+            if (imageObj) {
+                var canvas = document.createElement('canvas');
+                canvas.width = imageObj.width;
+                canvas.height = imageObj.height;
+                var context = canvas.getContext('2d');
+                context.drawImage(imageObj, 0, 0, imageObj.width, imageObj.height);
+                var imageData = context.getImageData(0, 0, imageObj.width, imageObj.height);
+                var data = imageData.data;
+
+                for (var i = 0; i < data.length; i += 4) {
+                    // Convert to grayscale
+                    var avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+                    data[i] = avg; // Red
+                    data[i + 1] = avg; // Green
+                    data[i + 2] = avg; // Blue
+                }
+
+                context.putImageData(imageData, 0, 0);
+                imageObj.src = canvas.toDataURL();
+            }
+        }
+
+        function onOpenCvReady() {
+            console.log('OpenCV.js is ready');
+            analyzeImage();
+        }
+
+        function analyzeImage() {
+            if (imageObj && cv) {
+                var canvas = document.createElement('canvas');
+                canvas.width = imageObj.width;
+                canvas.height = imageObj.height;
+                var context = canvas.getContext('2d');
+                context.drawImage(imageObj, 0, 0, imageObj.width, imageObj.height);
+
+                var src = cv.imread(canvas);
+                var dst = new cv.Mat();
+
+                cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
+                cv.threshold(src, dst, 128, 255, cv.THRESH_BINARY);
+
+                var contoursResult = new cv.MatVector();
+                var hierarchy = new cv.Mat();
+
+                cv.findContours(dst, contoursResult, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+                contours = [];
+                for (var i = 0; i < contoursResult.size(); i++) {
+                    var contour = contoursResult.get(i);
+                    var points = [];
+                    for (var j = 0; j < contour.data32S.length; j += 2) {
+                        points.push({
+                            x: contour.data32S[j],
+                            y: contour.data32S[j + 1]
+                        });
+                    }
+                    var konvaShape = new Konva.Line({
+                        points: points,
+                        fill: 'red',
+                        stroke: 'black',
+                        strokeWidth: 2,
+                        closed: true,
+                        name: 'shape-' + i,
+                        hitFunc: function(context) {
+                            context.beginPath();
+                            this.getPoints().forEach(function(point) {
+                                context.lineTo(point.x, point.y);
+                            });
+                            context.closePath();
+                            context.fillStrokeShape(this);
+                        }
+                    });
+                    layer.add(konvaShape);
+                    contours.push(konvaShape);
+                }
+
+                layer.draw();
+
+                cv.imshow(canvas, dst);
+                src.delete();
+                dst.delete();
+                contoursResult.delete();
+                hierarchy.delete();
+            }
+        }
+
+        function startFilling() {
+            isFilling = !isFilling;
+            fillingButton.textContent = isFilling ? "Stop Filling" : "Start Filling";
+
+            if (isFilling) {
+                stage.on('click', function (e) {
+                    if (contours.length > 0) {
+                        var color = colorPicker.value;
+                        var pointerPosition = stage.getPointerPosition();
+                        var shape = getClickedShape(pointerPosition);
+                        debugger
+                        if (shape) {
+                            shape.fill(color);
+                            layer.draw();
+                        }
+                    }
+                });
+            } else {
+                stage.off('click');
+            }
+        }
+
+        function getClickedShape(pointerPosition) {
+            var shape = stage.getIntersection(pointerPosition);
+            if (shape && shape.name().startsWith('shape-')) {
+                return shape;
+            }
+            return null;
+        }
+    </script>
+</body>
+
+</html>

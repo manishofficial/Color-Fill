@@ -10,31 +10,30 @@ imageFileInput.addEventListener('change', handleImageUpload);
 
 // Handle canvas click event
 const canvas = document.getElementById('canvas');
-canvas.addEventListener('click', handleCanvasClick);
+const canvasContainer = document.getElementById('canvasContainer');
+
+canvasContainer.addEventListener('click', handleCanvasClick);
+// canvas.addEventListener('mousemove', handleCanvasMouseMove);
 
 // Handle canvas click event
 function handleCanvasClick(event) {
-    const x = event.offsetX;
-    const y = event.offsetY;
+    const rect = canvas.getBoundingClientRect();
 
-    // Find the shape containing the clicked region
+    // Calculate scaling factors
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
+    // Calculate the original image coordinates
+    const x = Math.floor((event.clientX - rect.left) * scaleX);
+    const y = Math.floor((event.clientY - rect.top) * scaleY);
+
+    // Find the shape containing the adjusted coordinates
     const shapeKey = findShape(x, y);
 
     // Fill the clicked region in the shape with the selected color
     if (shapeKey) {
-        // const colorInput = document.getElementById(shapeKey);
         const selectedColor = 'red';
         fillRegion(shapeKey, selectedColor);
-    }
-}
-
-// Handle document mousemove event
-function handleDocumentMouseMove(event) {
-    const rect = canvas.getBoundingClientRect();
-    const mouseX = event.clientX - rect.left;
-    const mouseY = event.clientY - rect.top;
-    if (mouseX < 0 || mouseY < 0 || mouseX > canvas.width || mouseY > canvas.height) {
-        removeHover();
     }
 }
 
@@ -90,7 +89,7 @@ function handleImageUpload(event) {
 
             const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
             const pixels = imageData.data;
-            const threshold = 128;
+            const threshold = calculateOtsuThreshold(pixels);
 
             for (let i = 0; i < pixels.length; i += 4) {
                 const r = pixels[i];
@@ -138,23 +137,19 @@ function handleImageUpload(event) {
     reader.readAsDataURL(file);
 }
 
-
 // Calculate the Otsu's threshold value for the image data
 function calculateOtsuThreshold(pixels) {
-    const histogram = Array.from({ length: 256 }, () => 0);
+    const histogram = new Uint32Array(256);
 
-    // Calculate the histogram of pixel intensities
+    // Calculate the histogram of pixel intensities and the sum of all pixel values
+    let sum = 0;
     for (let i = 0; i < pixels.length; i += 4) {
         const grayscale = pixels[i];
         histogram[grayscale]++;
+        sum += grayscale;
     }
 
     const totalPixels = pixels.length / 4;
-    let sum = 0;
-    for (let i = 0; i < 256; i++) {
-        sum += i * histogram[i];
-    }
-
     let sumB = 0;
     let wB = 0;
     let wF = 0;
@@ -165,16 +160,12 @@ function calculateOtsuThreshold(pixels) {
         wB += histogram[i];
         if (wB === 0) continue;
         wF = totalPixels - wB;
-
         if (wF === 0) break;
 
         sumB += i * histogram[i];
-
         const mB = sumB / wB;
         const mF = (sum - sumB) / wF;
-
-        const betweenVariance =
-            wB * wF * (mB - mF) * (mB - mF);
+        const betweenVariance = wB * wF * (mB - mF) ** 2;
 
         if (betweenVariance > maxVariance) {
             maxVariance = betweenVariance;
@@ -200,37 +191,6 @@ function fillRegion(shapeKey, color) {
         // Update the filled color for the region
         filledColors[shapeKey] = color;
     });
-}
-
-// Show region fill effect when moving the mouse without clicking
-function showRegionFillEffect(shapeKey) {
-    clearCanvas();
-
-    const regions = shapeRegions[shapeKey];
-
-    regions.forEach(region => {
-        const { x, y } = region;
-
-        // Get the color for the region
-        const color = filledColors[shapeKey] || '#ffffff';
-
-        // Show the region fill effect with the color
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y, 1, 1);
-    });
-}
-
-// Clear the canvas by redrawing the original image
-function clearCanvas() {
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const img = new Image();
-    img.onload = function () {
-        ctx.drawImage(img, 0, 0);
-    };
-    img.src = canvas.toDataURL();
 }
 
 // Find the shape containing the specified coordinates
@@ -309,43 +269,6 @@ function floodFill(x, y, visited, shapeKey, regions, pixels, width, height, queu
     }
 }
 
-// Group the regions into shapes based on proximity
-function groupRegionsByShape(regions) {
-    const shapes = {};
-    let shapeIndex = 1;
-
-    regions.forEach(region => {
-        const { x, y } = region;
-        let foundShape = false;
-
-        for (const shapeKey in shapes) {
-            const shapeRegions = shapes[shapeKey];
-            for (let i = 0; i < shapeRegions.length; i++) {
-                const shapeRegion = shapeRegions[i];
-                const { x: sx, y: sy } = shapeRegion;
-
-                // Check if the region is within the proximity of the shape
-                if (Math.abs(x - sx) <= 1 && Math.abs(y - sy) <= 1) {
-                    shapeRegions.push(region);
-                    foundShape = true;
-                    break;
-                }
-            }
-            if (foundShape) {
-                break;
-            }
-        }
-
-        // Create a new shape if the region doesn't belong to any existing shape
-        if (!foundShape) {
-            const shapeKey = 'shape' + shapeIndex++;
-            shapes[shapeKey] = [region];
-        }
-    });
-
-    return shapes;
-}
-
 // Render color options for each shape
 function renderColorOptions() {
     const colorOptionsContainer = document.getElementById('colorOptions');
@@ -405,6 +328,7 @@ function getNeighbors(x, y) {
 
     return neighbors;
 }
+
 function downloadImage() {
     const link = document.createElement('a');
     link.href = canvas.toDataURL('image/png'); // Get the canvas content as a data URL

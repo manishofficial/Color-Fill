@@ -4,8 +4,16 @@
 <head>
     <title>Image Color Fill</title>
     <style>
-        canvas {
+        #canvasContainer {
             border: 1px solid black;
+            overflow: scroll;
+            width: 500px;
+            height: 500px;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
         }
 
         .color-input {
@@ -18,7 +26,11 @@
     <input type="file" id="imageFile" accept="image/*">
     <button id="downloadButton">Download Colored Image</button>
     <div id="loading-message"></div>
-    <canvas id="canvas"></canvas>
+    <div class="playarea">
+        <div id="canvasContainer">
+            <canvas id="canvas"></canvas>
+        </div>
+    </div>
 
     <h3>Color Options</h3>
     <div id="colorOptions"></div>
